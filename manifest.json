@@ -1,0 +1,13 @@
+{
+  "background_color": "#ffffff",
+  "dir": "ltr",
+  "display": "standalone",
+  "name": "Space Jump",
+  "orientation": "any",
+  "scope": "/",
+  "short_name": "Space Jump",
+  "start_url": "/",
+  "theme_color": "#ffffff",
+  "id": "space-jump",
+  "description": "لعبة قفز فضائية ممتعة - اقفز للأعلى وتجنب الأعداء"
+}
