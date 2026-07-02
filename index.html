@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<title>Space Jump - قفزة الفضاء</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: linear-gradient(180deg, #0b0033, #1a0057, #2d0080);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100vh;
+    font-family: 'Segoe UI', Tahoma, sans-serif;
+    overflow: hidden;
+    touch-action: none;
+  }
+  #gameContainer {
+    position: relative;
+    border: 4px solid #ff6ec7;
+    border-radius: 12px;
+    box-shadow: 0 0 30px #ff6ec7aa, 0 0 60px #7d5fffaa;
+    overflow: hidden;
+  }
+  canvas {
+    display: block;
+    background: transparent;
+  }
+  #hud {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    color: #fff;
+    font-size: 22px;
+    font-weight: bold;
+    text-shadow: 0 0 8px #ff6ec7;
+    z-index: 10;
+  }
+  #overlay {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(10, 0, 40, 0.85);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: white;
+    text-align: center;
+    z-index: 20;
+  }
+  #overlay h1 {
+    font-size: 32px;
+    color: #ffd93d;
+    text-shadow: 0 0 12px #ffd93d;
+    margin-bottom: 10px;
+  }
+  #overlay p { font-size: 18px; margin: 6px 0; color: #dcd6ff; }
+  button {
+    margin-top: 18px;
+    padding: 12px 30px;
+    font-size: 18px;
+    font-weight: bold;
+    background: linear-gradient(135deg, #ff6ec7, #7d5fff);
+    border: none;
+    border-radius: 30px;
+    color: white;
+    cursor: pointer;
+    box-shadow: 0 4px 15px #ff6ec788;
+  }
+  button:active { transform: scale(0.95); }
+  #controls {
+    display: flex;
+    gap: 40px;
+    margin-top: 14px;
+  }
+  .ctrlBtn {
+    width: 70px;
+    height: 70px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #7d5fff, #ff6ec7);
+    color: white;
+    font-size: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    box-shadow: 0 4px 12px #00000055;
+  }
+</style>
+</head>
+<body>
+
+<div id="gameContainer">
+  <div id="hud">🚀 الارتفاع: <span id="score">0</span></div>
+  <canvas id="game" width="400" height="600"></canvas>
+  <div id="overlay">
+    <h1>🚀 Space Jump</h1>
+    <p>اقفز للأعلى وتجنب الأشباح الفضائية</p>
+    <p>استخدم ⬅️ ➡️ أو الأزرار بالأسفل للتحرك</p>
+    <button id="startBtn">ابدأ اللعب</button>
+  </div>
+</div>
+
+<div id="controls">
+  <div class="ctrlBtn" id="leftBtn">⬅️</div>
+  <div class="ctrlBtn" id="rightBtn">➡️</div>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+const W = canvas.width, H = canvas.height;
+
+let player, platforms, particles, keys, score, bestHeight, gameRunning, cameraY, enemies;
+let colors = {
+  player: '#ffd93d',
+  platform: '#6bffb8',
+  movingPlatform: '#ff6ec7',
+  enemy: '#ff4757'
+};
+
+function resetGame() {
+  player = {
+    x: W/2 - 20, y: H - 100, w: 40, h: 40,
+    vy: 0, vx: 0, facing: 1
+  };
+  platforms = [];
+  enemies = [];
+  particles = [];
+  score = 0;
+  bestHeight = 0;
+  cameraY = 0;
+  keys = {left:false, right:false};
+
+  // starting platform
+  platforms.push({x: W/2 - 40, y: H - 40, w: 80, moving:false});
+
+  let y = H - 120;
+  while (y > -H) {
+    addPlatform(y);
+    y -= 70 + Math.random()*40;
+  }
+}
+
+function addPlatform(y) {
+  let x = Math.random() * (W - 80);
+  let moving = Math.random() < 0.25;
+  platforms.push({x, y, w: 80, moving, dir: Math.random() < 0.5 ? 1 : -1, speed: 1 + Math.random()});
+  if (Math.random() < 0.12 && y < H - 300) {
+    enemies.push({x: Math.random()*(W-30), y: y - 30, w: 30, h:30, dir: Math.random()<0.5?1:-1});
+  }
+}
+
+function spawnParticles(x, y, color) {
+  for (let i=0; i<8; i++) {
+    particles.push({
+      x, y, vx: (Math.random()-0.5)*4, vy: (Math.random()-0.5)*4,
+      life: 20, color
+    });
+  }
+}
+
+let stars = [];
+function initStars() {
+  stars = [];
+  for (let i=0; i<60; i++) {
+    stars.push({x: Math.random()*W, y: Math.random()*H, r: Math.random()*1.5+0.3, speed: Math.random()*0.5+0.1});
+  }
+}
+
+function update() {
+  if (!gameRunning) return;
+
+  // horizontal movement
+  if (keys.left) { player.vx = -4.5; player.facing = -1; }
+  else if (keys.right) { player.vx = 4.5; player.facing = 1; }
+  else { player.vx *= 0.85; }
+
+  player.x += player.vx;
+  if (player.x < -player.w) player.x = W;
+  if (player.x > W) player.x = -player.w;
+
+  // gravity
+  player.vy += 0.35;
+  player.y += player.vy;
+
+  // camera follow
+  if (player.y < H/2) {
+    let diff = H/2 - player.y;
+    player.y = H/2;
+    cameraY += diff;
+    score = Math.max(score, Math.floor(cameraY / 10));
+    platforms.forEach(p => p.y += diff);
+    enemies.forEach(e => e.y += diff);
+    particles.forEach(p => p.y += diff);
+    // remove offscreen, add new
+    platforms = platforms.filter(p => p.y < H + 20);
+    enemies = enemies.filter(e => e.y < H + 20);
+    let minY = Math.min(...platforms.map(p=>p.y));
+    while (minY > -20) {
+      addPlatform(minY - (70 + Math.random()*40));
+      minY = Math.min(...platforms.map(p=>p.y));
+    }
+  }
+
+  // platform collision (only when falling)
+  if (player.vy > 0) {
+    for (let p of platforms) {
+      if (player.x + player.w > p.x && player.x < p.x + p.w &&
+          player.y + player.h > p.y && player.y + player.h < p.y + 20 + player.vy) {
+        player.vy = -11;
+        spawnParticles(player.x + player.w/2, player.y + player.h, colors.platform);
+      }
+    }
+  }
+
+  // moving platforms
+  platforms.forEach(p => {
+    if (p.moving) {
+      p.x += p.dir * p.speed;
+      if (p.x <= 0 || p.x + p.w >= W) p.dir *= -1;
+    }
+  });
+
+  // enemies
+  enemies.forEach(e => {
+    e.x += e.dir * 1.5;
+    if (e.x <= 0 || e.x + e.w >= W) e.dir *= -1;
+    if (player.x + player.w > e.x && player.x < e.x + e.w &&
+        player.y + player.h > e.y && player.y < e.y + e.h) {
+      endGame();
+    }
+  });
+
+  // particles
+  particles.forEach(p => { p.x += p.vx; p.y += p.vy; p.life--; });
+  particles = particles.filter(p => p.life > 0);
+
+  // stars parallax
+  stars.forEach(s => {
+    s.y += s.speed;
+    if (s.y > H) { s.y = 0; s.x = Math.random()*W; }
+  });
+
+  // fall death
+  if (player.y > H + 50) {
+    endGame();
+  }
+
+  document.getElementById('score').textContent = score;
+}
+
+function drawPlayer() {
+  ctx.save();
+  ctx.translate(player.x + player.w/2, player.y + player.h/2);
+  ctx.scale(player.facing, 1);
+  // body
+  ctx.fillStyle = colors.player;
+  ctx.beginPath();
+  ctx.arc(0, 0, 18, 0, Math.PI*2);
+  ctx.fill();
+  // eye
+  ctx.fillStyle = '#1a0057';
+  ctx.beginPath();
+  ctx.arc(6, -4, 3, 0, Math.PI*2);
+  ctx.fill();
+  // flame trail
+  if (player.vy < 0) {
+    ctx.fillStyle = '#ff6ec7';
+    ctx.beginPath();
+    ctx.moveTo(-8, 14);
+    ctx.lineTo(-18, 26);
+    ctx.lineTo(2, 16);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+
+  // stars
+  ctx.fillStyle = '#ffffff';
+  stars.forEach(s => {
+    ctx.globalAlpha = 0.6;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI*2);
+    ctx.fill();
+  });
+  ctx.globalAlpha = 1;
+
+  // platforms
+  platforms.forEach(p => {
+    ctx.fillStyle = p.moving ? colors.movingPlatform : colors.platform;
+    ctx.shadowColor = ctx.fillStyle;
+    ctx.shadowBlur = 10;
+    roundRect(p.x, p.y, p.w, 14, 7);
+    ctx.shadowBlur = 0;
+  });
+
+  // enemies
+  enemies.forEach(e => {
+    ctx.fillStyle = colors.enemy;
+    ctx.shadowColor = colors.enemy;
+    ctx.shadowBlur = 12;
+    ctx.beginPath();
+    ctx.arc(e.x + e.w/2, e.y + e.h/2, e.w/2, 0, Math.PI*2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    // eyes
+    ctx.fillStyle = 'white';
+    ctx.beginPath();
+    ctx.arc(e.x + e.w/2 - 5, e.y + e.h/2 - 3, 3, 0, Math.PI*2);
+    ctx.arc(e.x + e.w/2 + 5, e.y + e.h/2 - 3, 3, 0, Math.PI*2);
+    ctx.fill();
+  });
+
+  // particles
+  particles.forEach(p => {
+    ctx.globalAlpha = p.life / 20;
+    ctx.fillStyle = p.color;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, 3, 0, Math.PI*2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  });
+
+  drawPlayer();
+}
+
+function roundRect(x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.arcTo(x+w, y, x+w, y+h, r);
+  ctx.arcTo(x+w, y+h, x, y+h, r);
+  ctx.arcTo(x, y+h, x, y, r);
+  ctx.arcTo(x, y, x+w, y, r);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function loop() {
+  update();
+  draw();
+  if (gameRunning) requestAnimationFrame(loop);
+}
+
+function endGame() {
+  gameRunning = false;
+  const overlay = document.getElementById('overlay');
+  overlay.innerHTML = `
+    <h1>💥 انتهت اللعبة</h1>
+    <p>وصلت لارتفاع: ${score}</p>
+    <button id="startBtn">حاول مرة ثانية</button>
+  `;
+  overlay.style.display = 'flex';
+  document.getElementById('startBtn').addEventListener('click', startGame);
+}
+
+function startGame() {
+  document.getElementById('overlay').style.display = 'none';
+  resetGame();
+  initStars();
+  gameRunning = true;
+  loop();
+}
+
+document.getElementById('startBtn').addEventListener('click', startGame);
+
+// keyboard controls
+window.addEventListener('keydown', e => {
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = true;
+  if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = true;
+});
+window.addEventListener('keyup', e => {
+  if (e.code === 'ArrowLeft' || e.code === 'KeyA') keys.left = false;
+  if (e.code === 'ArrowRight' || e.code === 'KeyD') keys.right = false;
+});
+
+// touch controls
+const leftBtn = document.getElementById('leftBtn');
+const rightBtn = document.getElementById('rightBtn');
+['touchstart','mousedown'].forEach(ev => {
+  leftBtn.addEventListener(ev, e => { e.preventDefault(); keys.left = true; });
+  rightBtn.addEventListener(ev, e => { e.preventDefault(); keys.right = true; });
+});
+['touchend','mouseup','touchcancel','mouseleave'].forEach(ev => {
+  leftBtn.addEventListener(ev, e => { e.preventDefault(); keys.left = false; });
+  rightBtn.addEventListener(ev, e => { e.preventDefault(); keys.right = false; });
+});
+
+initStars();
+</script>
+</body>
+</html>
